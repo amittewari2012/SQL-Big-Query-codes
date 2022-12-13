@@ -1,0 +1,39 @@
+dataset as
+(SELECT fleet_id, created_date,
+COUNT(d.id) as deliveries,
+avg(o.timings.actual_delivery_time) avg_delivery_time,
+avg(d.timings.bag_time) avg_bag_time,
+--avg_pickup_waiting missing,
+avg(o.timings.to_vendor_time) as avg_time_to_pickup ,
+FROM
+`fulfillment-dwh-production.cl.orders` o
+JOIN
+UNNEST(deliveries) d
+--JOIN UNNEST(timings) t
+WHERE
+d.delivery_status = 'completed' and
+is_preorder IS FALSE
+-- and created_date = '2022-09-12'
+-- and fleet_id in
+GROUP BY fleet_id, created_date
+----avg_pickup_waiting missing
+)
+,
+dataset2 as
+(select created_date, fleet_id, sum(working_time)/60 AS working_hours
+FROM `fulfillment-dwh-production.cl._working_time_over_minute`
+GROUP BY fleet_id, created_date
+)
+,
+dataset3 as
+(select fleet_id,created_date,avg(d.timings.delivery_delay) AS avg_del_late
+from `fulfillment-dwh-production.cl.orders` o
+left join UNNEST(deliveries) d
+WHERE d.timings.delivery_delay IS NOT NULL and d.timings.delivery_delay >=0
+GROUP BY fleet_id, created_date
+)
+,
+dataset4 as
+(SELECT fleet_id, created_date,COUNT(d.id) stacked_deliveries_count FROM `fulfillment-dwh-production.cl.orders` o
+left join UNNEST (deliveries) d WHERE stacked_deliveries >= 1
+group by fleet_id, created_date)
