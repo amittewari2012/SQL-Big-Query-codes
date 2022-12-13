@@ -1,1 +1,93 @@
-
+WITH vars AS (
+SELECT
+DATE('2022-06-14') AS start_date,
+DATE('2022-09-14') AS end_date,
+[] as countries_list,
+['ar-cordoba','no-oslo','tw-kinmen','tw-taichung'] as fleets_list
+),
+dataset as
+(SELECT fleet_id, created_date,
+COUNT(d.id) as deliveries,
+avg(o.timings.actual_delivery_time) avg_delivery_time,
+avg(d.timings.bag_time) avg_bag_time,
+--avg_pickup_waiting missing,
+avg(o.timings.to_vendor_time) as avg_time_to_pickup ,
+FROM
+`fulfillment-dwh-production.cl.orders` o
+JOIN
+UNNEST(deliveries) d
+--JOIN UNNEST(timings) t
+WHERE
+d.delivery_status = 'completed' and
+is_preorder IS FALSE
+-- and created_date = '2022-09-12'
+-- and fleet_id in
+GROUP BY fleet_id, created_date
+----avg_pickup_waiting missing
+)
+,
+dataset2 as
+(select created_date, fleet_id, sum(working_time)/60 AS working_hours
+FROM `fulfillment-dwh-production.cl._working_time_over_minute`
+GROUP BY fleet_id, created_date
+)
+,
+dataset3 as
+(select fleet_id,created_date,avg(d.timings.delivery_delay) AS avg_del_late
+from `fulfillment-dwh-production.cl.orders` o
+left join UNNEST(deliveries) d
+WHERE d.timings.delivery_delay IS NOT NULL and d.timings.delivery_delay >=0
+GROUP BY fleet_id, created_date
+)
+,
+dataset4 as
+(SELECT fleet_id, created_date,COUNT(d.id) stacked_deliveries_count FROM `fulfillment-dwh-production.cl.orders` o
+left join UNNEST (deliveries) d WHERE stacked_deliveries >= 1
+group by fleet_id, created_date)
+,
+sim_data AS
+(
+SELECT json_extract_scalar(se.tags,'$.fleet_id') as fleet_id,json_extract_scalar(se.tags, '$.date') as experiment_date,orders_delivered, avg_delivery_time*60 avg_delivery_time, avg_bag_time*60 avg_bag_time, avg_time_to_pickup*60 avg_time_to_pickup, rider_hours, avg_delivery_late,rate_stack
+from
+`fulfillment-dwh-production.dl.simulator_simulation_statistics` ss
+left join `fulfillment-dwh-production.dl.simulator_simulation_run` sr on sr.id=ss.simulation_run_id
+left join `fulfillment-dwh-production.dl.simulator_simulation_experiments` se on se.id=sr.experiment_id
+where sr.status_name='completed' and se.status_name='completed'
+)
+,
+comparision as
+(
+select d.created_date created_date,
+s.fleet_id fleet,
+d.deliveries,
+d4.stacked_deliveries_count*100/d.deliveries stack_rate ,
+d.avg_delivery_time,
+d.avg_bag_time,
+d.avg_time_to_pickup,
+d2.working_hours,
+d3.avg_del_late,
+s.orders_delivered,
+s.rate_stack,
+s.avg_delivery_time,
+s.avg_bag_time,
+s.avg_time_to_pickup,
+s.rider_hours,
+s.avg_delivery_late
+from
+dataset d inner join dataset2 d2
+on d.created_date=d2.created_date
+and d.fleet_id=d2.fleet_id
+inner join dataset3 d3
+on d.created_date=d3.created_date
+and d.fleet_id=d3.fleet_id
+inner join dataset4 d4
+on d.created_date=d4.created_date
+and d.fleet_id=d4.fleet_id
+inner join sim_data s
+on d.created_date=DATE(s.experiment_date)
+and d.fleet_id=s.fleet_id
+)
+SELECT c.* from
+comparision c, vars
+where c.created_date BETWEEN DATE(start_date) AND DATE(end_date)
+and c.fleet in UNNEST(fleets_list)
