@@ -1,0 +1,7 @@
+SELECT json_extract_scalar(se.tags,'$.fleet_id') as fleet_id,json_extract_scalar(se.tags, '$.date') as experiment_date,orders_delivered, avg_delivery_time*60 avg_delivery_time, avg_bag_time*60 avg_bag_time, avg_time_to_pickup*60 avg_time_to_pickup, rider_hours, avg_delivery_late,rate_stack
+from
+`fulfillment-dwh-production.dl.simulator_simulation_statistics` ss
+left join `fulfillment-dwh-production.dl.simulator_simulation_run` sr on sr.id=ss.simulation_run_id
+left join `fulfillment-dwh-production.dl.simulator_simulation_experiments` se on se.id=sr.experiment_id
+where sr.status_name='completed' and se.status_name='completed'
+)
