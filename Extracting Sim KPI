@@ -1,0 +1,8 @@
+SELECT sr.experiment_id,  
+se.name, ss.*
+from
+`fulfillment-dwh-production.dl.simulator_simulation_statistics` ss
+left join `fulfillment-dwh-production.dl.simulator_simulation_run` sr on sr.id=ss.simulation_run_id
+left join `fulfillment-dwh-production.dl.simulator_simulation_experiments` se on se.id=sr.experiment_id
+where sr.status_name='completed' and se.status_name='completed'
+and se.name like 'time_slicing_no_oslo%'
