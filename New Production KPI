@@ -1,0 +1,91 @@
+with dataset1 as 
+(SELECT fleet_id, created_date,
+COUNT(d.id) as deliveries,
+avg(o.timings.actual_delivery_time)/60 avg_delivery_time,
+avg(d.timings.bag_time)/60 avg_bag_time,
+--avg(d.timings.delivery_delay) AS avg_del_late,
+AVG(d.rider_picked_up_at-d.rider_near_restaurant_at) avg_pickup_waiting ,
+avg(o.timings.to_vendor_time)/60 as avg_time_to_pickup ,
+FROM
+`fulfillment-dwh-production.cl.orders` o
+JOIN
+UNNEST(deliveries) d
+
+WHERE
+d.delivery_status = 'completed' and
+is_preorder IS FALSE 
+AND d.created_at BETWEEN '2022-11-03 02:02:46.580387 UTC' AND '2022-11-03 17:59:46.216045 UTC'
+AND created_date='2022-11-03'
+AND fleet_id='no-oslo'
+GROUP BY fleet_id, created_date
+
+)
+
+,
+dataset2 as
+(select fleet_id,d.created_at,created_date,avg(d.timings.delivery_delay) AS avg_del_late
+from `fulfillment-dwh-production.cl.orders` o
+left join UNNEST(deliveries) d
+WHERE d.timings.delivery_delay IS NOT NULL and d.timings.delivery_delay >=0
+GROUP BY fleet_id, created_date,created_at
+)
+,
+
+dataset3 as
+(SELECT fleet_id, d.created_at,created_date,COUNT(d.id) stacked_deliveries_count FROM `fulfillment-dwh-production.cl.orders` o
+left join UNNEST (deliveries) d WHERE stacked_deliveries >= 1
+group by fleet_id, created_date,created_at)
+,
+dataset4 as
+(select created_date, fleet_id, sum(working_time)/60 AS working_hours
+FROM `fulfillment-dwh-production.cl._working_time_over_minute`
+GROUP BY fleet_id, created_date
+),
+dataset5 as
+(select created_date,fleet_id, avg(pickup_distance_manhattan_mts) avg_pickup_distance_mtrs
+from
+(select o.created_date,o.fleet_id,d.id id
+from `fulfillment-dwh-production.cl.orders` o, UNNEST(deliveries) d
+WHERE d.created_at BETWEEN '2022-11-03 02:02:46.580387 UTC' AND '2022-11-03 17:59:46.216045 UTC' ) ord
+inner join
+(select delivery_id, CASE WHEN is_outlier_pickup_distance_manhattan IS FALSE THEN pickup_distance_manhattan*1000
+ELSE NULL END AS pickup_distance_manhattan_mts
+from `fulfillment-dwh-production.cl._outlier_deliveries` 
+WHERE created_date='2022-11-03') od
+on ord.id=od.delivery_id
+group by ord.created_date,ord.fleet_id),
+dataset6 as 
+
+(select fleet_id,created_date,avg(d.timings.delivery_delay)/3600 AS avg_del_late
+from `fulfillment-dwh-production.cl.orders` o
+left join UNNEST(deliveries) d
+WHERE d.timings.delivery_delay IS NOT NULL and d.timings.delivery_delay >=0
+GROUP BY fleet_id, created_date
+),
+kpi as
+(select * from
+dataset1 d1 inner join dataset2 d2	
+on d1.created_date=d2.created_date	
+and d1.fleet_id=d2.fleet_id	
+inner join dataset3 d3	
+on d1.created_date=d3.created_date	
+and d1.fleet_id=d3.fleet_id	
+inner join dataset4 d4	
+on d1.created_date=d4.created_date	
+and d1.fleet_id=d4.fleet_id
+inner join dataset5	  d5
+on d1.created_date=d5.created_date	
+and d1.fleet_id=d5.fleet_id)
+
+SELECT kpi.deliveries ,
+kpi.avg_bag_time ,
+kpi.avg_delivery_time ,
+kpi.avg_pickup_waiting,
+kpi.avg_time_to_pickup,
+kpi.stacked_deliveries_count,
+kpi.working_hours,
+kpi.avg_pickup_distance_mtrs,
+kpi.avg_del_late
+ 
+from
+kpi
