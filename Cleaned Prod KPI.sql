@@ -6,7 +6,6 @@ WITH dataset1 AS (
     ,(SELECT COUNT(d.id) FROM UNNEST (deliveries) d WHERE stacked_deliveries >= 1) stack_del
     ,(o.timings.actual_delivery_time)/60 delivery_time
     ,(select avg(d.timings.bag_time)/60 from UNNEST(deliveries)d where d.timings.bag_time IS NOT NULL) bag_time2
-    
     ,(o.timings.order_delay / 60) AS del_late
     ,EXTRACT(minute FROM (d.rider_picked_up_at-d.rider_near_restaurant_at))+EXTRACT(second FROM (d.rider_picked_up_at-d.        rider_near_restaurant_at))/60 pickup_waiting 
     ,o.timings.to_vendor_time/60 as time_to_pickup 
@@ -29,7 +28,6 @@ SELECT fleet_id
     ,COUNT(deliveries) AS deliveries
     ,SUM(stack_del)/COUNT(deliveries)*100 AS stack_rate
     ,AVG(delivery_time) AS avg_delivery_time
-    
     ,AVG(bag_time2) AS avg_bag_time
     ,AVG(dataset1.del_late) AS avg_del_late
     ,AVG(pickup_waiting) AS avg_pickup_waiting
